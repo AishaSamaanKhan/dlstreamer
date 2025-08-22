@@ -1,3 +1,5 @@
+# RUN ON HOST
+
 # Install dependencies
 This adapted from the official docs: https://dlstreamer.github.io/dev_guide/advanced_install/advanced_install_guide_compilation.html
 ```
@@ -149,4 +151,33 @@ GST_DEBUG=gvaaudiotranscribe:4 gst-launch-1.0 filesrc location=$HOME/edge-ai-lib
 ### Launch using the microphone
 ```
 GST_DEBUG=gvaaudiotranscribe:4 gst-launch-1.0     pulsesrc buffer-time=2000000 ! audioconvert ! audioresample ! audio/x-raw,format=S16LE,channels=1,rate=16000 ! queue max-size-buffers=100 max-size-time=0 max-size-bytes=0 ! gvaaudiotranscribe model=whisper-base device=CPU ! fakesink
+```
+
+# RUN USING DOCKER 
+
+
+### Clone the repo
+```bash
+git clone https://github.com/AishaSamaanKhan/dlstreamer.git && cd dlstreamer
+git checkout audio-transcription
+git submodule update --init --recursive
+```
+
+### Docker build
+
+```bash
+docker build -f docker/dlstreamer_dev_ubuntu24.Dockerfile -t dlstreamer-ubuntu24-dev .
+```
+### Docker run 
+```bash
+mkdir ~/data
+# copy the whisper model and wav files in the data directory
+cd ~/data
+# run iteractively 
+docker run -it -v $(pwd):/data dlstreamer-ubuntu24-test:latest bash 
+#run the command inside docker
+GST_DEBUG=gvaaudiotranscribe:4 gst-launch-1.0 filesrc location=/data/wav/<wavefilename>.wav ! decodebin3 ! audioresample ! audioconvert ! audio/x-raw,channels=1,format=S16LE,rate=16000 ! audiomixer output-buffer-duration=100000000 ! gvaaudiotranscribe model=/data/whisper-base device=CPU ! fakesink
+or 
+#quick try
+docker run -it -v $(pwd):/data dlstreamer-ubuntu24-test:latest bash -c "GST_DEBUG=gvaaudiotranscribe:4 gst-launch-1.0 filesrc location=/data/wav/<wavefilename>.wav ! decodebin3 ! audioresample ! audioconvert ! audio/x-raw,channels=1,format=S16LE,rate=16000 ! audiomixer output-buffer-duration=100000000 ! gvaaudiotranscribe model=/data/whisper-base device=CPU ! fakesink"
 ```
