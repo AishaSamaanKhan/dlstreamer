@@ -95,3 +95,7 @@ endif()
 add_subdirectory(gvametapublish)
 add_subdirectory(gvapython)
 add_subdirectory(gvatrack)
+
+if(ENABLE_GENAI)
+    add_subdirectory(gvagenai)
+endif()

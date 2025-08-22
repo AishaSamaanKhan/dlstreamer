@@ -19,14 +19,17 @@ ARG FFMPEG_VERSION=6.1.1
 ARG PACKAGE_ORIGIN="https://gstreamer.freedesktop.org"
 ARG GST_REPO="${PACKAGE_ORIGIN}"/src
 ARG VORBIS_URL=https://downloads.xiph.org/releases/vorbis/libvorbis-${VORBIS_VERSION}.tar.xz
-ARG OPENVINO_VERSION=2025.0
-ARG OPENVINO_FILENAME=openvino_toolkit_ubuntu24_2025.0.0.17942.1f68be9f594_x86_64
+ARG OPENVINO_VERSION=2025.3
+ARG OPENVINO_FILENAME=openvino_toolkit_ubuntu24_2025.3.0.dev20250814_x86_64
+ARG OPENVINO_GENAI_VERSION=2025.3
+ARG OPENVINO_GENAI_FILENAME=openvino_genai_ubuntu24_2025.3.0.0.dev20250814_x86_64
 
 ENV INTEL_DLSTREAMER_DIR=/opt/intel/dlstreamer
 ENV GSTREAMER_SRC_DIR=/opt/intel/dlstreamer/gstreamer/src
 ENV LIBVA_DRIVERS_PATH=/usr/lib/x86_64-linux-gnu/dri
 ENV DLSTREAMER_DIR=/opt/intel/dlstreamer
 ENV OpenVINO_DIR=/opt/intel/openvino_"$OPENVINO_VERSION".0/runtime/cmake
+ENV OpenVINOGenAI_DIR=/opt/intel/openvino_genai_"OPENVINO_GENAI".0/runtime/cmake
 ENV SPDLOG_COMMIT=5ebfc927306fd7ce551fa22244be801cf2b9fdd9
 ENV GOOGLETEST_COMMIT=f8d7d77c06936315286eb55f8de22cd23c188571
 ENV LIBVA_DRIVER_NAME=iHD
@@ -434,7 +437,8 @@ RUN \
     shopt -s dotglob && \
     mv gst-plugins-rs/* . && \
     git checkout 207196a0334da74c4db9db7c565d882cb9ebc07d && \
-    wget -q --no-check-certificate -O- https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.85.0 && \
+    #wget -q --no-check-certificate -O- https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.85.0 && \
+    wget -q --no-check-certificate -O- https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.87.0 && \
     source "$HOME"/.cargo/env && \
     cargo install cargo-c --version=0.10.11 && \
     cargo update && \
@@ -446,11 +450,19 @@ RUN \
 
 # Intel® Distribution of OpenVINO™ Toolkit
 RUN \
-    wget -q --no-check-certificate https://storage.openvinotoolkit.org/repositories/openvino/packages/"$OPENVINO_VERSION"/linux/"$OPENVINO_FILENAME".tgz && \
-    tar -xf "$OPENVINO_FILENAME".tgz && \
+    #wget -q --no-check-certificate https://storage.openvinotoolkit.org/repositories/openvino/packages/"$OPENVINO_VERSION"/linux/"$OPENVINO_FILENAME".tgz && \
+    wget -q --no-check-certificate https://storage.openvinotoolkit.org/repositories/openvino/packages/nightly/2025.3.0-19785-689ab8b0685/"$OPENVINO_FILENAME".tgz && \
+    tar xzf "$OPENVINO_FILENAME".tgz && \
     mv "$OPENVINO_FILENAME" /opt/intel/openvino_"$OPENVINO_VERSION".0 && \
     rm "$OPENVINO_FILENAME".tgz && \
     /opt/intel/openvino_"$OPENVINO_VERSION".0/install_dependencies/install_openvino_dependencies.sh -y
+
+
+RUN \
+    wget -q --no-check-certificate https://storage.openvinotoolkit.org/repositories/openvino_genai/packages/nightly/2025.3.0.0.dev20250814/"$OPENVINO_GENAI_FILENAME".tar.gz && \
+   tar xzf "$OPENVINO_GENAI_FILENAME".tar.gz && \
+   mv "$OPENVINO_GENAI_FILENAME" /opt/intel/openvino_genai_"$OPENVINO_GENAI_VERSION".0 && \
+   rm "$OPENVINO_GENAI_FILENAME".tar.gz 
 
 # OpenCV
 WORKDIR /
@@ -477,36 +489,46 @@ RUN \
 # Intel® DL Streamer
 WORKDIR "$INTEL_DLSTREAMER_DIR"
 
+COPY . "${INTEL_DLSTREAMER_DIR}"
+
 RUN \
-    wget -q --no-check-certificate https://github.com/dlstreamer/dlstreamer/archive/refs/tags/v"$DLSTREAMER_VERSION".zip && \
-    unzip v"$DLSTREAMER_VERSION".zip && \
-    rm v"$DLSTREAMER_VERSION".zip && \
-    mv dlstreamer-"$DLSTREAMER_VERSION"/* . && \
-    rm -rf dlstreamer-"$DLSTREAMER_VERSION" && \
-    wget -q --no-check-certificate https://github.com/gabime/spdlog/archive/"$SPDLOG_COMMIT".zip && \
-    unzip "$SPDLOG_COMMIT".zip && \
-    rm "$SPDLOG_COMMIT".zip && \
-    mv spdlog-"$SPDLOG_COMMIT"/* thirdparty/spdlog/ && \
-    rm -rf spdlog-"$SPDLOG_COMMIT" && \
-    wget -q --no-check-certificate https://github.com/google/googletest/archive/"$GOOGLETEST_COMMIT".zip && \
-    unzip "$GOOGLETEST_COMMIT".zip && \
-    rm "$GOOGLETEST_COMMIT".zip && \
-    mkdir thirdparty/googletest && \
-    mv googletest-"$GOOGLETEST_COMMIT"/* thirdparty/googletest/ && \
-    rm -rf googletest-"$GOOGLETEST_COMMIT" && \
-    ${INTEL_DLSTREAMER_DIR}/scripts/install_metapublish_dependencies.sh && \
+    # wget -q --no-check-certificate https://github.com/dlstreamer/dlstreamer/archive/refs/tags/v"$DLSTREAMER_VERSION".zip && \
+    # unzip v"$DLSTREAMER_VERSION".zip && \
+    # rm v"$DLSTREAMER_VERSION".zip && \
+    # mv dlstreamer-"$DLSTREAMER_VERSION"/* . && \
+    # rm -rf dlstreamer-"$DLSTREAMER_VERSION" && \
+    # wget -q --no-check-certificate https://github.com/gabime/spdlog/archive/"$SPDLOG_COMMIT".zip && \
+    # unzip "$SPDLOG_COMMIT".zip && \
+    # rm "$SPDLOG_COMMIT".zip && \
+    # mv spdlog-"$SPDLOG_COMMIT"/* thirdparty/spdlog/ && \
+    # rm -rf spdlog-"$SPDLOG_COMMIT" && \
+    # wget -q --no-check-certificate https://github.com/google/googletest/archive/"$GOOGLETEST_COMMIT".zip && \
+    # unzip "$GOOGLETEST_COMMIT".zip && \
+    # rm "$GOOGLETEST_COMMIT".zip && \
+    # mkdir thirdparty/googletest && \
+    # mv googletest-"$GOOGLETEST_COMMIT"/* thirdparty/googletest/ && \
+    # rm -rf googletest-"$GOOGLETEST_COMMIT" && \
+    # ${INTEL_DLSTREAMER_DIR}/scripts/install_metapublish_dependencies.sh && \
+    ls -l && \
     mkdir build
 
 WORKDIR "$INTEL_DLSTREAMER_DIR"/build
 
+# Setup enviroment variables using installed packages
+# hadolint ignore=SC1091
+RUN \
+    source /opt/intel/openvino_"$OPENVINO_VERSION".0/setupvars.sh && \
+    source /opt/intel/openvino_genai_"$OPENVINO_GENAI_VERSION".0/setupvars.sh
+
 RUN \
     cmake \
     -DCMAKE_BUILD_TYPE=Debug \
-    -DENABLE_PAHO_INSTALLATION=ON \
-    -DENABLE_RDKAFKA_INSTALLATION=ON \
+    -DENABLE_PAHO_INSTALLATION=OFF \
+    -DENABLE_RDKAFKA_INSTALLATION=OFF \
     -DENABLE_VAAPI=ON \
     -DENABLE_SAMPLES=ON \
-    .. && \
+    -DENABLE_GENAI=ON \
+    .. -DCMAKE_INSTALL_PREFIX=/opt/intel/openvino_genai_2025.3.0/runtime/cmake && \
     make -j "$(nproc)" && \
     make install && \
     usermod -a -G video dlstreamer && \
@@ -514,10 +536,6 @@ RUN \
     ln -s /usr/local/lib/gstreamer-1.0 /opt/intel/dlstreamer/lib && \
     chown -R dlstreamer /opt/intel/dlstreamer
 
-# Setup enviroment variables using installed packages
-# hadolint ignore=SC1091
-RUN \
-    source /opt/intel/openvino_"$OPENVINO_VERSION".0/setupvars.sh
 
 # setup vars
 ENV GSTREAMER_DIR=$DLSTREAMER_DIR/gstreamer
@@ -532,6 +550,7 @@ ENV LD_LIBRARY_PATH=${LIBDIR}:${LD_LIBRARY_PATH}
 
 ENV LIB_PATH="$LIBDIR"
 ENV INTEL_OPENVINO_DIR=/opt/intel/openvino_"$OPENVINO_VERSION".0
+ENV INTEL_OPENVINO_GENAI_DIR=/opt/intel/openvino_genai_"$OPENVINO_GENAI_VERSION".0
 
 # OpenVINO environment variables
 ENV OpenVINO_DIR="$INTEL_OPENVINO_DIR/runtime/cmake"
@@ -541,6 +560,7 @@ ENV HDDL_INSTALL_DIR="$INTEL_OPENVINO_DIR/runtime/3rdparty/hddl"
 ENV TBB_DIR="$INTEL_OPENVINO_DIR/runtime/3rdparty/tbb/cmake"
 ENV LD_LIBRARY_PATH="$INTEL_OPENVINO_DIR/tools/compile_tool:$INTEL_OPENVINO_DIR/runtime/3rdparty/tbb/lib:$INTEL_OPENVINO_DIR/runtime/3rdparty/hddl/lib:$INTEL_OPENVINO_DIR/runtime/lib/intel64:$LD_LIBRARY_PATH"
 ENV PYTHONPATH="$INTEL_OPENVINO_DIR/python/${PYTHON_VERSION}:$PYTHONPATH"
+ENV OpenVINOGenAI_DIR="$INTEL_OPENVINO_GENAI_DIR/runtime/cmake"
 
 # DL Streamer environment variables
 ENV GSTREAMER_DIR="${DLSTREAMER_DIR}/gstreamer"
