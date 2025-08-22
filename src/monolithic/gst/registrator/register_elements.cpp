@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (C) 2018-2024 Intel Corporation
+ * Copyright (C) 2018-2025 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  ******************************************************************************/
@@ -9,6 +9,7 @@
 #include <gst/gst.h>
 
 #include "gstgvaaudiodetect.h"
+#include "gstgvaaudiotranscribe.h"
 #include "gstgvaclassify.h"
 #include "gstgvadetect.h"
 #include "gstgvainference.h"
@@ -27,6 +28,9 @@
 #include "inference_backend/logger.h"
 #include "logger_functions.h"
 
+#include "gvametapublish.hpp"
+#include "gvametapublishfile.hpp"
+
 static gboolean plugin_init(GstPlugin *plugin) {
     set_log_function(GST_logger);
 
@@ -38,6 +42,8 @@ static gboolean plugin_init(GstPlugin *plugin) {
         return FALSE;
     if (!gst_element_register(plugin, "gvaaudiodetect", GST_RANK_NONE, gst_gva_audio_detect_get_type()))
         return FALSE;
+    if (!gst_element_register(plugin, "gvaaudiotranscribe", GST_RANK_NONE, gst_gva_audio_transcribe_get_type()))
+        return FALSE;
     if (!gst_element_register(plugin, "gvatrack", GST_RANK_NONE, GST_TYPE_GVA_TRACK))
         return FALSE;
     if (!gst_element_register(plugin, "gvawatermark", GST_RANK_NONE, GST_TYPE_GVA_WATERMARK))
@@ -48,6 +54,12 @@ static gboolean plugin_init(GstPlugin *plugin) {
         return FALSE;
     if (!gst_element_register(plugin, "gvametaaggregate", GST_RANK_NONE, GST_TYPE_GVA_META_AGGREGATE))
         return FALSE;
+#if _MSC_VER
+    if (!gst_element_register(plugin, "gvametapublish", GST_RANK_NONE, GST_TYPE_GVA_META_PUBLISH))
+        return FALSE;
+    if (!gst_element_register(plugin, "gvametapublishfile", GST_RANK_NONE, GST_TYPE_GVA_META_PUBLISH_FILE))
+        return FALSE;
+#endif
 
     // register metadata
     gst_gva_json_meta_get_info();

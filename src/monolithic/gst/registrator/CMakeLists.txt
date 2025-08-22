@@ -24,6 +24,9 @@ PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../elements/gvametaconvert/
     ${CMAKE_CURRENT_SOURCE_DIR}/../elements/gvatrack/
     ${CMAKE_CURRENT_SOURCE_DIR}/../elements/gvawatermark/
+    ${CMAKE_CURRENT_SOURCE_DIR}/../elements/gvametapublish/
+    ${CMAKE_CURRENT_SOURCE_DIR}/../elements/gvametapublish/base/
+    ${CMAKE_CURRENT_SOURCE_DIR}/../elements/gvametapublish/file/
 )
 
 target_link_libraries(${TARGET_NAME}
@@ -35,6 +38,7 @@ PRIVATE
     audio_inference_elements
     gvatrack
     gstdlstreamer_bins
+    gvametapublish
 )
 
 install(TARGETS ${TARGET_NAME} DESTINATION ${DLSTREAMER_PLUGINS_INSTALL_PATH})
