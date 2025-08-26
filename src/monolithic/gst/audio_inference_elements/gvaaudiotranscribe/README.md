@@ -168,16 +168,38 @@ git submodule update --init --recursive
 ```bash
 docker build -f docker/dlstreamer_dev_ubuntu24.Dockerfile -t dlstreamer-ubuntu24-dev .
 ```
+
+### Setup to download models
+```bash
+cd ~/
+python3 -m venv python3-env
+source python3-env/bin/activate
+# install dependencies to download and convert whisper-model
+
+wget https://raw.githubusercontent.com/openvinotoolkit/openvino.genai/refs/heads/master/samples/requirements.txt
+wget https://raw.githubusercontent.com/openvinotoolkit/openvino.genai/refs/heads/master/samples/deployment-requirements.txt
+wget https://raw.githubusercontent.com/openvinotoolkit/openvino.genai/refs/heads/master/samples/export-requirements.txt
+
+pip install --upgrade-strategy eager -r ./requirements.txt
+```
+
+### Download model
+
+```
+mkdir -p ~/data
+cd ~/data
+optimum-cli export openvino --trust-remote-code --model openai/whisper-base whisper-base
+#sample wave file 
+wget https://storage.openvinotoolkit.org/models_contrib/speech/2021.2/librispeech_s5/how_are_you_doing_today.wav
+```
+
 ### Docker run 
 ```bash
-mkdir ~/data
-# copy the whisper model and wav files in the data directory
-cd ~/data
 # run iteractively 
-docker run -it -v $(pwd):/data dlstreamer-ubuntu24-test:latest bash 
+docker run -it -v ~/data:/data dlstreamer-ubuntu24-test:latest bash 
 #run the command inside docker
-GST_DEBUG=gvaaudiotranscribe:4 gst-launch-1.0 filesrc location=/data/wav/<wavefilename>.wav ! decodebin3 ! audioresample ! audioconvert ! audio/x-raw,channels=1,format=S16LE,rate=16000 ! audiomixer output-buffer-duration=100000000 ! gvaaudiotranscribe model=/data/whisper-base device=CPU ! fakesink
+GST_DEBUG=gvaaudiotranscribe:4 gst-launch-1.0 filesrc location=/data/how_are_you_doing_today.wav ! decodebin3 ! audioresample ! audioconvert ! audio/x-raw,channels=1,format=S16LE,rate=16000 ! audiomixer output-buffer-duration=100000000 ! gvaaudiotranscribe model=/data/whisper-base device=CPU ! fakesink
 or 
 #quick try
-docker run -it -v $(pwd):/data dlstreamer-ubuntu24-test:latest bash -c "GST_DEBUG=gvaaudiotranscribe:4 gst-launch-1.0 filesrc location=/data/wav/<wavefilename>.wav ! decodebin3 ! audioresample ! audioconvert ! audio/x-raw,channels=1,format=S16LE,rate=16000 ! audiomixer output-buffer-duration=100000000 ! gvaaudiotranscribe model=/data/whisper-base device=CPU ! fakesink"
+docker run -it -v ~/data:/data dlstreamer-ubuntu24-test:latest bash -c "GST_DEBUG=gvaaudiotranscribe:4 gst-launch-1.0 filesrc location=/data/how_are_you_doing_today.wav ! decodebin3 ! audioresample ! audioconvert ! audio/x-raw,channels=1,format=S16LE,rate=16000 ! audiomixer output-buffer-duration=100000000 ! gvaaudiotranscribe model=/data/whisper-base device=CPU ! fakesink"
 ```
