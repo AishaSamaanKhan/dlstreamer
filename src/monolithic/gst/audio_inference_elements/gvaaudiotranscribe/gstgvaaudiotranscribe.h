@@ -29,16 +29,17 @@ struct _GvaAudioTranscribe {
     /* properties */
     gchar *model_path;          /* path to the Whisper model */
     gchar *device;              /* inference device (CPU, GPU, etc.) */
-    //gchar *language;            /* language code for transcription */
-    //gchar *task;                /* task: transcribe or translate */
-    //gboolean return_timestamps; /* whether to return timestamps */
+    gchar *model_type;
+    gchar *language;            /* language code for transcription */
+    gchar *task;                /* task: transcribe or translate */
+    gboolean return_timestamps; /* whether to return timestamps */
     std::shared_ptr<ov::Core> core;
     ov::CompiledModel compiled_model;
     ov::InferRequest infer_request;
 
     /* internal state */
-    //void *pipeline;             /* Whisper pipeline */
-    //void *config;               /* Whisper generation config */
+    void *pipeline;             /* Whisper pipeline */
+    void *config;               /* Whisper generation config */
     std::vector<float> *audio_data; /* buffer for audio samples */
     std::mutex *mutex;          /* mutex for thread-safe audio buffer access */
     std::unordered_map<int, std::string> vocab;

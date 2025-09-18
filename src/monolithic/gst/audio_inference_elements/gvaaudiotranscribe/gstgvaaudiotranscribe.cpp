@@ -1,9 +1,3 @@
-/*******************************************************************************
- * Copyright (C) 2018-2024 Intel Corporation
- *
- * SPDX-License-Identifier: MIT
- ******************************************************************************/
-
 #include "gstgvaaudiotranscribe.h"
 #include <gst/audio/audio.h>
 #include <gst/gst.h>
@@ -16,9 +10,8 @@
 #include <nlohmann/json.hpp>
 #include <fstream>
 
-
-#define ELEMENT_LONG_NAME "Audio transcription based on wav 2 vec model model"
-#define ELEMENT_DESCRIPTION "Performs speech recognition using OpenVINO wav2vec model."
+#define ELEMENT_LONG_NAME "Audio transcription based on Whisper model or wavvec model"
+#define ELEMENT_DESCRIPTION "Performs speech recognition using OpenVINO Whisper model or wavvec model."
 #define SAMPLE_RATE 16000
 
 GST_DEBUG_CATEGORY_STATIC(gva_audio_transcribe_debug_category);
@@ -29,6 +22,10 @@ enum {
     PROP_0,
     PROP_MODEL_PATH,
     PROP_DEVICE,
+    PROP_MODEL_TYPE,
+    PROP_LANGUAGE,
+    PROP_TASK,
+    PROP_RETURN_TIMESTAMPS
 };
 
 static GstStaticPadTemplate sink_factory =
@@ -74,13 +71,30 @@ void gst_gva_audio_transcribe_class_init(GvaAudioTranscribeClass *gvaaudiotransc
     // Install properties
     g_object_class_install_property(
         gobject_class, PROP_MODEL_PATH,
-        g_param_spec_string("model", "Model", "Path to the wav2vec model", NULL, G_PARAM_READWRITE));
+        g_param_spec_string("model", "Model", "Path to the Whisper model directory or Path to wavvec .xml Model", NULL, G_PARAM_READWRITE));
 
     g_object_class_install_property(
         gobject_class, PROP_DEVICE,
         g_param_spec_string("device", "Device", "Device to use for inference (CPU, GPU)", "CPU", G_PARAM_READWRITE));
-
     
+    g_object_class_install_property(
+        gobject_class, PROP_MODEL_TYPE,
+        g_param_spec_string("model_type", "Model_Type", "Model_Type for inference (whisper, wavvec)", "whisper", G_PARAM_READWRITE));
+
+
+    g_object_class_install_property(
+        gobject_class, PROP_LANGUAGE,
+        g_param_spec_string("language", "Language", "Language code (e.g., <|en|>)", "<|en|>", G_PARAM_READWRITE));
+
+    g_object_class_install_property(
+        gobject_class, PROP_TASK,
+        g_param_spec_string("task", "Task", "Task: 'transcribe' or 'translate'", "transcribe", G_PARAM_READWRITE));
+
+    g_object_class_install_property(
+        gobject_class, PROP_RETURN_TIMESTAMPS,
+        g_param_spec_boolean("return-timestamps", "Return Timestamps",
+                            "Whether to return timestamps with transcription", FALSE, G_PARAM_READWRITE));
+
     // Setup pad templates
     gst_element_class_add_pad_template(element_class, gst_static_pad_template_get(&src_factory));
     gst_element_class_add_pad_template(element_class, gst_static_pad_template_get(&sink_factory));
@@ -95,7 +109,14 @@ void gst_gva_audio_transcribe_init(GvaAudioTranscribe *gvaaudiotranscribe) {
     // Initialize properties with default values
     gvaaudiotranscribe->model_path = NULL;
     gvaaudiotranscribe->device = g_strdup("CPU");
+    gvaaudiotranscribe->model_type = g_strdup("whisper");
+    gvaaudiotranscribe->language = g_strdup("<|en|>");
+    gvaaudiotranscribe->task = g_strdup("transcribe");
+    gvaaudiotranscribe->return_timestamps = FALSE;
+
     // Initialize internal state
+    gvaaudiotranscribe->pipeline = NULL;
+    gvaaudiotranscribe->config = NULL;
     gvaaudiotranscribe->audio_data = new std::vector<float>();
     gvaaudiotranscribe->mutex = new std::mutex();
 
@@ -116,6 +137,21 @@ static void gst_gva_audio_transcribe_set_property(GObject *object, guint prop_id
         g_free(gvaaudiotranscribe->device);
         gvaaudiotranscribe->device = g_value_dup_string(value);
         break;
+    case PROP_MODEL_TYPE:
+    	g_free(gvaaudiotranscribe->model_type);
+        gvaaudiotranscribe->model_type = g_value_dup_string(value);
+        break;
+    case PROP_LANGUAGE:
+        g_free(gvaaudiotranscribe->language);
+        gvaaudiotranscribe->language = g_value_dup_string(value);
+        break;
+    case PROP_TASK:
+        g_free(gvaaudiotranscribe->task);
+        gvaaudiotranscribe->task = g_value_dup_string(value);
+        break;
+    case PROP_RETURN_TIMESTAMPS:
+        gvaaudiotranscribe->return_timestamps = g_value_get_boolean(value);
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
         break;
@@ -132,6 +168,18 @@ static void gst_gva_audio_transcribe_get_property(GObject *object, guint prop_id
     case PROP_DEVICE:
         g_value_set_string(value, gvaaudiotranscribe->device);
         break;
+    case PROP_MODEL_TYPE:
+    	g_value_set_string(value, gvaaudiotranscribe->model_type);
+	break;
+    case PROP_LANGUAGE:
+        g_value_set_string(value, gvaaudiotranscribe->language);
+        break;
+    case PROP_TASK:
+        g_value_set_string(value, gvaaudiotranscribe->task);
+        break;
+    case PROP_RETURN_TIMESTAMPS:
+        g_value_set_boolean(value, gvaaudiotranscribe->return_timestamps);
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
         break;
@@ -146,6 +194,9 @@ static void gst_gva_audio_transcribe_finalize(GObject *object) {
     // Free string properties
     g_free(gvaaudiotranscribe->model_path);
     g_free(gvaaudiotranscribe->device);
+    g_free(gvaaudiotranscribe->model_type);
+    g_free(gvaaudiotranscribe->language);
+    g_free(gvaaudiotranscribe->task);
 
     // Delete C++ objects
     delete static_cast<std::vector<float>*>(gvaaudiotranscribe->audio_data);
@@ -162,9 +213,43 @@ static gboolean gst_gva_audio_transcribe_start(GstBaseTransform *base) {
         GST_ERROR_OBJECT(gvaaudiotranscribe, "Model path not specified");
         return FALSE;
     }
+    
+    if (g_strcmp0(gvaaudiotranscribe->model_type, "whisper") == 0)
+    {
 
-    // Create and initialize model loading
-    try {
+        // Create and initialize Whisper pipeline
+        try {
+            std::string model_path(gvaaudiotranscribe->model_path);
+            std::string device(gvaaudiotranscribe->device);
+
+            GST_INFO_OBJECT(gvaaudiotranscribe, "Creating Whisper pipeline with model: %s on device: %s",
+                            model_path.c_str(), device.c_str());
+
+            auto *pipeline = new ov::genai::WhisperPipeline(model_path, device);
+            gvaaudiotranscribe->pipeline = pipeline;
+
+            GST_DEBUG_OBJECT(gvaaudiotranscribe, "Pipeline created, setting up configuration");
+
+            auto *config = new ov::genai::WhisperGenerationConfig();
+            *config = pipeline->get_generation_config();
+            config->language = gvaaudiotranscribe->language;
+            config->task = gvaaudiotranscribe->task;
+            config->return_timestamps = gvaaudiotranscribe->return_timestamps;
+            gvaaudiotranscribe->config = config;
+
+            GST_INFO_OBJECT(gvaaudiotranscribe, "Whisper pipeline initialized successfully (language: %s, task: %s)",
+                        gvaaudiotranscribe->language, gvaaudiotranscribe->task);
+
+            return TRUE;
+        } catch (const std::exception &e) {
+            GST_ERROR_OBJECT(gvaaudiotranscribe, "Failed to initialize Whisper pipeline: %s", e.what());
+            return FALSE;
+        }
+    } 
+    
+    else if (g_strcmp0(gvaaudiotranscribe->model_type, "wavvec") == 0)
+    {
+        try {
         std::string model_path(gvaaudiotranscribe->model_path);
         std::string device(gvaaudiotranscribe->device);
 
@@ -190,36 +275,33 @@ static gboolean gst_gva_audio_transcribe_start(GstBaseTransform *base) {
         gvaaudiotranscribe->infer_request = gvaaudiotranscribe->compiled_model.create_infer_request();
         GST_INFO_OBJECT(gvaaudiotranscribe, "Model loaded and compiled successfully: %s on %s",
                         model_path.c_str(), device.c_str());
-
-        
-
-
-        //auto *pipeline = new ov::genai::WhisperPipeline(model_path, device);
-        //gvaaudiotranscribe->pipeline = pipeline;
-
-        //GST_DEBUG_OBJECT(gvaaudiotranscribe, "Pipeline created, setting up configuration");
-
-        /* auto *config = new ov::genai::WhisperGenerationConfig();
-        *config = pipeline->get_generation_config();
-        config->language = gvaaudiotranscribe->language;
-        config->task = gvaaudiotranscribe->task;
-        config->return_timestamps = gvaaudiotranscribe->return_timestamps;
-        gvaaudiotranscribe->config = config; */
-
-        //GST_INFO_OBJECT(gvaaudiotranscribe, "Whisper pipeline initialized successfully (language: %s, task: %s)",
-        //               gvaaudiotranscribe->language, gvaaudiotranscribe->task);
-
-        return TRUE;
-    } catch (const std::exception &e) {
-        GST_ERROR_OBJECT(gvaaudiotranscribe, "Failed to initialize wav2vec: %s", e.what());
-        return FALSE;
+        } 
+        catch (const std::exception &e) {
+            GST_ERROR_OBJECT(gvaaudiotranscribe, "Failed to initialize wavvec pipeline: %s", e.what());
+            return FALSE;
+        }
     }
+    else{
+    GST_ERROR_OBJECT(gvaaudiotranscribe, "Unknown model_type: %s", gvaaudiotranscribe->model_type);
+    return FALSE;
+    }
+    return TRUE;
 }
 
 static gboolean gst_gva_audio_transcribe_stop(GstBaseTransform *base) {
     GvaAudioTranscribe *gvaaudiotranscribe = GVA_AUDIO_TRANSCRIBE(base);
 
     GST_DEBUG_OBJECT(gvaaudiotranscribe, "Stopping element");
+
+    if (gvaaudiotranscribe->pipeline) {
+        delete static_cast<ov::genai::WhisperPipeline *>(gvaaudiotranscribe->pipeline);
+        gvaaudiotranscribe->pipeline = NULL;
+    }
+
+    if (gvaaudiotranscribe->config) {
+        delete static_cast<ov::genai::WhisperGenerationConfig *>(gvaaudiotranscribe->config);
+        gvaaudiotranscribe->config = NULL;
+    }
 
     if (gvaaudiotranscribe->infer_request) {
         gvaaudiotranscribe->infer_request = {};
@@ -233,6 +315,7 @@ static gboolean gst_gva_audio_transcribe_stop(GstBaseTransform *base) {
     {
         gvaaudiotranscribe->core.reset();
     }
+
 
     auto *audio_data = static_cast<std::vector<float> *>(gvaaudiotranscribe->audio_data);
     audio_data->clear();
@@ -252,120 +335,128 @@ static GstFlowReturn gst_gva_audio_transcribe_transform_ip(GstBaseTransform *bas
         return GST_FLOW_ERROR;
     }
 
-    // Convert PCM data to float
+    // Convert PCM int16 to float
     const int16_t *pcm_data = reinterpret_cast<const int16_t *>(map.data);
     size_t num_samples = map.size / sizeof(int16_t);
-
-    // Add samples to buffer with proper locking
     {
         std::lock_guard<std::mutex> lock(*mutex);
-        const size_t previous_size = audio_data->size();
-        audio_data->reserve(previous_size + num_samples);
-
+        audio_data->reserve(audio_data->size() + num_samples);
         for (size_t i = 0; i < num_samples; ++i) {
-            audio_data->push_back(static_cast<float>(pcm_data[i]) / 32768.0f);  // Normalize to [-1.0, 1.0]
+            audio_data->push_back(static_cast<float>(pcm_data[i]) / 32768.0f);
         }
-
-        GST_LOG_OBJECT(gvaaudiotranscribe, "Added %zu samples, buffer now contains %zu samples",
-                       num_samples, audio_data->size());
     }
-    gst_buffer_unmap(buf, &map);
 
-    // Process audio when we have enough samples (e.g., 3 seconds)
     const size_t threshold_samples = SAMPLE_RATE * GST_AUDIO_TRANSCRIBE_THRESHOLD_SEC;
     if (audio_data->size() > threshold_samples) {
         GST_DEBUG_OBJECT(gvaaudiotranscribe, "Reached threshold of %zu samples, starting transcription", threshold_samples);
+
         try {
             std::lock_guard<std::mutex> lock(*mutex);
-            size_t total_samples = audio_data->size();
 
+            if (g_strcmp0(gvaaudiotranscribe->model_type, "wavvec") == 0) {
+                // --- wavvec/Logits-based transcription ---
+                ov::Shape input_shape = {1, audio_data->size()};
+                ov::Tensor input_tensor(gvaaudiotranscribe->compiled_model.input().get_element_type(),
+                                        input_shape, audio_data->data());
+                gvaaudiotranscribe->infer_request.set_input_tensor(input_tensor);
+                gvaaudiotranscribe->infer_request.infer();
+                ov::Tensor output_tensor = gvaaudiotranscribe->infer_request.get_output_tensor();
+                auto output_shape = output_tensor.get_shape();
 
-            //ov::genai::RawSpeechInput input = *audio_data;
-            ov::Shape input_shape = {1, total_samples};
-            ov::Tensor input_tensor(gvaaudiotranscribe->compiled_model.input().get_element_type(),
-                                input_shape,
-                                audio_data->data());
-            gvaaudiotranscribe->infer_request.set_input_tensor(input_tensor);
-            //std::memcpy(input_tensor.data<float>(), audio_data->data(),
-            //    num_samples * sizeof(float));
-            gvaaudiotranscribe->infer_request.infer();
-            ov::Tensor output_tensor = gvaaudiotranscribe->infer_request.get_output_tensor();
-            auto output_shape = output_tensor.get_shape();
- 
+                if (output_shape.size() < 2) {
+                    GST_ERROR_OBJECT(gvaaudiotranscribe, "Unexpected output shape from model");
+                    audio_data->clear();
+                    return GST_FLOW_ERROR;
+                }
 
-            GST_INFO_OBJECT(gvaaudiotranscribe, "Output tensor element type: %s",
-                output_tensor.get_element_type().c_type_string().c_str());
+                size_t time_steps = (output_shape.size() == 3) ? output_shape[1] : output_shape[0];
+                size_t vocab_size = (output_shape.size() == 3) ? output_shape[2] : output_shape[1];
+                float *logits = output_tensor.data<float>();
 
-           
-            if (output_shape.size() < 2) {
-                GST_ERROR_OBJECT(gvaaudiotranscribe, "Unexpected output shape from model");
-                return GST_FLOW_ERROR;
-            }
-            size_t time_steps =  (output_shape.size() == 3) ? output_shape[1] : output_shape[0];
-            size_t vocab_size = (output_shape.size() == 3) ? output_shape[2] : output_shape[1];
-            
-
-            float *logits = output_tensor.data<float>();
-            if (!logits) {
-                GST_ERROR_OBJECT(gvaaudiotranscribe, "Output tensor data is null");
-                return GST_FLOW_ERROR;
-            }
-
-    
-            std::vector<int64_t> token_ids(time_steps);
-            for (size_t t = 0; t < time_steps; t++) {
-                float max_val = -1e9f;
-                int64_t max_idx = 0;
-                for (size_t v = 0; v < vocab_size; v++) {
-                    float val = logits[t * vocab_size + v];
-                    if (val > max_val) {
-                        max_val = val;
-                        max_idx = v;
+                std::vector<int64_t> token_ids(time_steps);
+                for (size_t t = 0; t < time_steps; t++) {
+                    float max_val = -1e9f;
+                    int64_t max_idx = 0;
+                    for (size_t v = 0; v < vocab_size; v++) {
+                        float val = logits[t * vocab_size + v];
+                        if (val > max_val) { max_val = val; max_idx = v; }
                     }
+                    token_ids[t] = max_idx;
                 }
-                token_ids[t] = max_idx;
-            }
 
+                std::vector<std::string> &alphabet = gvaaudiotranscribe->alphabet;
+                if (alphabet.empty()) {
+                    alphabet = {"<pad>", "<s>", "</s>", "<unk>", "|", "e","t","a","o","n","i","h","s","r",
+                                "d","l","u","m","w","c","f","g","y","p","b","v","k","'","x","j","q","z"};
+                }
 
-
-
-            gvaaudiotranscribe->alphabet = {
-            "<pad>", "<s>", "</s>", "<unk>", "|", "e","t","a","o","n","i","h","s","r",
-            "d","l","u","m","w","c","f","g","y","p","b","v","k","'","x","j","q","z"
-            };
-
-            std::vector<std::string> &alphabet = gvaaudiotranscribe->alphabet; // already initialized
-            std::string transcription;
-            int64_t prev = -1;
-            for (auto id : token_ids) {
-                if (id == 0 || id == prev) { // skip <pad> and repeated
+                std::string transcription;
+                int64_t prev = -1;
+                for (auto id : token_ids) {
+                    if (id == 0 || id == prev) { prev = id; continue; }
+                    std::string token = (id < static_cast<int64_t>(alphabet.size())) ? alphabet[id] : "";
+                    if (token == "|") token = " ";
+                    transcription += token;
                     prev = id;
-                    continue;
                 }
-                 std::string token = (id < static_cast<int64_t>(alphabet.size())) ? alphabet[id] : "";
-                if (token == "|") token = " ";
-                transcription += token;
-                prev = id;
+
+                GST_INFO_OBJECT(gvaaudiotranscribe, "Decoded text (wavvec): %s", transcription.c_str());
+
+            } else if (g_strcmp0(gvaaudiotranscribe->model_type, "whisper") == 0) {
+                // --- WhisperPipeline transcription ---
+                auto *pipeline = static_cast<ov::genai::WhisperPipeline *>(gvaaudiotranscribe->pipeline);
+                auto *config = static_cast<ov::genai::WhisperGenerationConfig *>(gvaaudiotranscribe->config);
+
+                if (!pipeline || !config) {
+                    GST_ERROR_OBJECT(gvaaudiotranscribe, "Whisper pipeline or config not initialized");
+                    audio_data->clear();
+                    return GST_FLOW_ERROR;
+                }
+
+                ov::genai::RawSpeechInput input = *audio_data;
+                GST_INFO_OBJECT(gvaaudiotranscribe, "Running Whisper transcription on %zu samples", input.size());
+                auto result = pipeline->generate(input, *config);
+
+                if (!result.texts.empty()) {
+                    const std::string &transcript = result.texts[0];
+                    GST_INFO_OBJECT(gvaaudiotranscribe, "Whisper transcription: %s", transcript.c_str());
+
+                    GstClockTime start_time = GST_BUFFER_PTS(buf);
+                    GstClockTime duration = GST_BUFFER_DURATION(buf);
+                    if (!GST_CLOCK_TIME_IS_VALID(start_time)) start_time = 0;
+                    if (!GST_CLOCK_TIME_IS_VALID(duration)) duration = GST_SECOND * GST_AUDIO_TRANSCRIBE_THRESHOLD_SEC;
+                    GstClockTime end_time = start_time + duration;
+
+                    if (gst_buffer_is_writable(buf)) {
+                        GstGVAAudioEventMeta *meta = gst_gva_buffer_add_audio_event_meta(buf, transcript.c_str(), start_time, end_time);
+                        if (meta) {
+                            GstStructure *detection = gst_structure_new(
+                                "detection",
+                                "label", G_TYPE_STRING, transcript.c_str(),
+                                "text", G_TYPE_STRING, transcript.c_str(),
+                                "start_timestamp", G_TYPE_UINT64, start_time,
+                                "end_timestamp", G_TYPE_UINT64, end_time,
+                                NULL);
+                            gst_gva_audio_event_meta_add_param(meta, detection);
+                            GST_INFO_OBJECT(gvaaudiotranscribe, "Added transcription metadata to buffer");
+                        } else {
+                            GST_ERROR_OBJECT(gvaaudiotranscribe, "Failed to add audio event metadata to buffer");
+                        }
+                    }
+                } else {
+                    GST_WARNING_OBJECT(gvaaudiotranscribe, "Whisper transcription result is empty");
+                }
+            } else {
+                GST_ERROR_OBJECT(gvaaudiotranscribe, "Unknown model type: %s", gvaaudiotranscribe->model_type);
             }
 
-
-            GST_INFO_OBJECT(gvaaudiotranscribe,"Decoded text: %s", transcription.c_str());
-
-
-
-
-
-            GST_INFO_OBJECT(gvaaudiotranscribe, "Running transcription on  samples");
-
-            GST_LOG_OBJECT(gvaaudiotranscribe, "Clearing audio buffer after transcription");
             audio_data->clear();
-            }
-        catch (const std::exception &e) {
+        } catch (const std::exception &e) {
             GST_ERROR_OBJECT(gvaaudiotranscribe, "Error during transcription: %s", e.what());
+            audio_data->clear();
         }
     }
 
-            
-    //gst_buffer_unmap(buf, &map);
+    gst_buffer_unmap(buf, &map);
     return GST_FLOW_OK;
 }
