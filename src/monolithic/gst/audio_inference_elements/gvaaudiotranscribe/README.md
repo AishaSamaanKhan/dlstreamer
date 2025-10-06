@@ -1,3 +1,38 @@
+# GVA Audio Transcribe Element
+
+GStreamer element for audio transcription using speech recognition models.
+
+## Overview
+
+This element provides audio transcription capabilities with an extensible handler interface. Currently supports:
+
+- **Whisper models** (primary support) - OpenVINO GenAI backend
+- **Extensible handler interface** - Users can implement custom model handlers
+
+### Key Features
+
+- Real-time audio transcription
+- Configurable language and task settings
+- Optional timestamp generation
+- Device selection (CPU, GPU)
+- Extensible architecture for custom models
+- GStreamer metadata integration
+
+### Model Type Support
+
+- `whisper` - ✅ Fully supported (OpenVINO GenAI)
+- Custom types - 🔧 Implement your own! See [CUSTOM_HANDLERS.md](CUSTOM_HANDLERS.md)
+
+## Quick Usage
+
+```bash
+# Basic Whisper transcription
+gst-launch-1.0 audiotestsrc ! audioconvert ! audioresample ! \
+    "audio/x-raw,format=S16LE,rate=16000,channels=1" ! \
+    gvaaudiotranscribe model=/path/to/whisper/model model_type=whisper device=CPU ! \
+    fakesink
+```
+
 # RUN ON HOST
 
 # Install dependencies
@@ -192,6 +227,62 @@ optimum-cli export openvino --trust-remote-code --model openai/whisper-base whis
 #sample wave file 
 wget https://storage.openvinotoolkit.org/models_contrib/speech/2021.2/librispeech_s5/how_are_you_doing_today.wav
 ```
+
+## Extensible Handler Interface
+
+This element features an extensible handler interface that allows users to implement support for custom speech recognition models.
+
+### Currently Supported Models
+
+- **Whisper** (`model_type=whisper`) - \u2705 Fully supported via OpenVINO GenAI
+
+### Adding Custom Model Support
+
+Want to add support for your own speech recognition model? It's easy!
+
+1. **See the detailed guide**: [CUSTOM_HANDLERS.md](CUSTOM_HANDLERS.md)
+2. **Check examples**: Look at `examples/` directory for template implementations
+3. **Implement the interface**: Inherit from `GvaAudioTranscribeHandler`
+4. **Register your handler**: Add it to the model type selection logic
+5. **Use it**: Set `model_type=your_custom_type`
+
+### Example: Using Unsupported Model Type
+
+If you try to use an unsupported model type:
+
+```bash
+# This will show a helpful error message
+gst-launch-1.0 audiotestsrc ! audioconvert ! audioresample ! \
+    "audio/x-raw,format=S16LE,rate=16000,channels=1" ! \
+    gvaaudiotranscribe model=/path/to/model model_type=custom_model ! \
+    fakesink
+```
+
+**Error output:**
+```
+Model type 'custom_model' is not currently supported. 
+Currently supported: 'whisper'. 
+Feel free to implement support for 'custom_model' by extending the GvaAudioTranscribeHandler interface! 
+See gstgvaaudiotranscribehandler.h for the extensible interface.
+```
+
+### Properties
+
+- `model` - Path to model (directory for Whisper, custom path for other models)
+- `model_type` - Model type: `whisper` (supported), or your custom type
+- `device` - Inference device: `CPU`, `GPU`
+- `language` - Language code (e.g., `<|en|>` for English)
+- `task` - Task type: `transcribe` or `translate`
+- `return-timestamps` - Whether to include timestamps in output
+
+### Architecture Benefits
+
+- **Modularity**: Each model type has its own handler
+- **Extensibility**: Easy to add new model types
+- **Maintainability**: Clean separation of concerns
+- **Flexibility**: Users can implement their own inference logic
+
+Feel free to contribute your custom handlers back to the project!
 
 ### Docker run 
 ```bash

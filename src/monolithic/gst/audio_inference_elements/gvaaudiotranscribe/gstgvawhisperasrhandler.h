@@ -3,6 +3,12 @@
 #include "gstgvaaudiotranscribehandler.h"
 #include <openvino/genai/whisper_pipeline.hpp>
 
+/**
+ * OpenVINO GenAI Whisper implementation of the audio transcription handler.
+ * 
+ * This is the default and primary supported handler for Whisper-based 
+ * speech recognition using OpenVINO GenAI backend.
+ */
 class WhisperHandler : public GvaAudioTranscribeHandler {
 public:
     bool initialize(const std::string &model_path, const std::string &device,
@@ -12,6 +18,8 @@ public:
     std::string transcribe(const std::vector<float> &audio_data, GstBuffer *buf) override;
 
     void cleanup() override;
+
+    std::map<std::string, std::string> get_info() const override;
 
 private:
     ov::genai::WhisperPipeline *pipeline = nullptr;

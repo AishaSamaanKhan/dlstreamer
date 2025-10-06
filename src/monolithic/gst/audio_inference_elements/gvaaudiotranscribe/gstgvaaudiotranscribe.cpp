@@ -4,15 +4,14 @@
 #include <openvino/genai/whisper_pipeline.hpp>
 #include <dlstreamer/gst/metadata/gva_audio_event_meta.h>
 #include "gstgvawhisperasrhandler.h"
-#include "gstgvawav2vechandler.h"
 #include <string>
 #include <vector>
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <fstream>
 
-#define ELEMENT_LONG_NAME "Audio transcription based on Whisper model or wavvec model"
-#define ELEMENT_DESCRIPTION "Performs speech recognition using OpenVINO Whisper model or wavvec model."
+#define ELEMENT_LONG_NAME "Audio transcription using Whisper models with extensible handler interface"
+#define ELEMENT_DESCRIPTION "Performs speech recognition using OpenVINO Whisper models. Supports extensible handler interface for custom model implementations."
 #define SAMPLE_RATE 16000
 
 GST_DEBUG_CATEGORY_STATIC(gva_audio_transcribe_debug_category);
@@ -72,7 +71,7 @@ void gst_gva_audio_transcribe_class_init(GvaAudioTranscribeClass *gvaaudiotransc
     // Install properties
     g_object_class_install_property(
         gobject_class, PROP_MODEL_PATH,
-        g_param_spec_string("model", "Model", "Path to the Whisper model directory or Path to wavvec .xml Model", NULL, G_PARAM_READWRITE));
+        g_param_spec_string("model", "Model", "Path to the Whisper model directory (or custom model path for extensible handlers)", NULL, G_PARAM_READWRITE));
 
     g_object_class_install_property(
         gobject_class, PROP_DEVICE,
@@ -80,7 +79,7 @@ void gst_gva_audio_transcribe_class_init(GvaAudioTranscribeClass *gvaaudiotransc
     
     g_object_class_install_property(
         gobject_class, PROP_MODEL_TYPE,
-        g_param_spec_string("model_type", "Model_Type", "Model_Type for inference (whisper, wavvec)", "whisper", G_PARAM_READWRITE));
+        g_param_spec_string("model_type", "Model_Type", "Model type for inference: 'whisper' (supported), custom types can be implemented", "whisper", G_PARAM_READWRITE));
 
 
     g_object_class_install_property(
@@ -220,42 +219,28 @@ static gboolean gst_gva_audio_transcribe_start(GstBaseTransform *base) {
     }
 
     if (!gvaaudiotranscribe->model_type || gvaaudiotranscribe->model_type[0] == '\0') {
-        GST_ERROR_OBJECT(gvaaudiotranscribe, "model_type property is required (e.g. model_type=whisper | wavvec)");
+        GST_ERROR_OBJECT(gvaaudiotranscribe, "model_type property is required (currently supported: 'whisper')");
         return FALSE;
     }
 
-    if (g_strcmp0(gvaaudiotranscribe->model_type, "wavvec") == 0) {
-        if (!g_str_has_suffix(gvaaudiotranscribe->model_path, ".xml")) {
-            GST_ERROR_OBJECT(gvaaudiotranscribe,
-                             "For model_type=wavvec the model must be an OpenVINO IR .xml file (got: %s)",
-                             gvaaudiotranscribe->model_path);
-            return FALSE;
-        }
-    } else if (g_strcmp0(gvaaudiotranscribe->model_type, "whisper") == 0) {
-        /* Accept directory or file path; basic heuristic: if it ends with .xml warn user */
-        if (g_str_has_suffix(gvaaudiotranscribe->model_path, ".xml")) {
-            GST_WARNING_OBJECT(gvaaudiotranscribe,
-                               "model_type=whisper usually expects a model directory, but an .xml was provided (%s). if you wish to use a different supported model mention using model_type parameter.",
-                               gvaaudiotranscribe->model_path);
-        }
-    } else {
-        GST_ERROR_OBJECT(gvaaudiotranscribe, "Unsupported model_type '%s' (expected whisper | wavvec)",
-                         gvaaudiotranscribe->model_type);
-        return FALSE;
-    }
-    
-    // Choose handler implementation
+    // Check for supported model types - currently only Whisper is implemented
     if (g_strcmp0(gvaaudiotranscribe->model_type, "whisper") == 0) {
+        // Whisper is supported
         gvaaudiotranscribe->handler = new WhisperHandler();
-    } else if (g_strcmp0(gvaaudiotranscribe->model_type, "wavvec") == 0) {
-        gvaaudiotranscribe->handler = new WavVecHandler();
     } else {
-        GST_ERROR_OBJECT(gvaaudiotranscribe, "Unknown model_type: %s", gvaaudiotranscribe->model_type);
+        // Provide helpful message for unsupported types
+        GST_ERROR_OBJECT(gvaaudiotranscribe, 
+                         "Model type '%s' is not currently supported. "
+                         "Currently supported: 'whisper'. "
+                         "Feel free to implement support for '%s' by extending the GvaAudioTranscribeHandler interface! "
+                         "See gstgvaaudiotranscribehandler.h for the extensible interface.",
+                         gvaaudiotranscribe->model_type, gvaaudiotranscribe->model_type);
         return FALSE;
     }
 
-    GST_INFO_OBJECT(gvaaudiotranscribe, "Initializing handler '%s' with model '%s' on device '%s'", 
+    GST_INFO_OBJECT(gvaaudiotranscribe, "Initializing %s handler with model '%s' on device '%s'", 
                     gvaaudiotranscribe->model_type, gvaaudiotranscribe->model_path, gvaaudiotranscribe->device);
+    
     try {
         if (!gvaaudiotranscribe->handler->initialize(gvaaudiotranscribe->model_path, gvaaudiotranscribe->device,
                                                      gvaaudiotranscribe->language, gvaaudiotranscribe->task,
@@ -265,6 +250,12 @@ static gboolean gst_gva_audio_transcribe_start(GstBaseTransform *base) {
             gvaaudiotranscribe->handler = nullptr;
             return FALSE;
         }
+        
+        // Log handler info for debugging/monitoring
+        auto info = gvaaudiotranscribe->handler->get_info();
+        GST_INFO_OBJECT(gvaaudiotranscribe, "Handler initialized: type=%s, backend=%s, status=%s", 
+                        info["handler_type"].c_str(), info["backend"].c_str(), info["status"].c_str());
+                        
     } catch (const std::exception &e) {
         GST_ERROR_OBJECT(gvaaudiotranscribe, "Handler initialization failed: %s", e.what());
         delete gvaaudiotranscribe->handler;

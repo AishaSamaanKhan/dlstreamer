@@ -29,15 +29,15 @@ struct _GvaAudioTranscribe {
     GstBaseTransform base;
 
     /* properties */
-    gchar *model_path;              /* path to the model (Whisper directory or wavvec .xml) */
+    gchar *model_path;              /* path to the model (Whisper directory, or custom model path) */
     gchar *device;                  /* inference device (CPU, GPU, etc.) */
-    gchar *model_type;              /* whisper | wavvec */
+    gchar *model_type;              /* model type: whisper (default), custom types can be implemented */
     gchar *language;                /* language code for transcription */
     gchar *task;                    /* task: transcribe or translate */
     gboolean return_timestamps;     /* whether to return timestamps */
 
     /* modular handler */
-    GvaAudioTranscribeHandler *handler; /* selected handler implementation */
+    GvaAudioTranscribeHandler *handler; /* handler implementation - extensible for custom models */
 
     /* shared audio accumulation state */
     std::vector<float> *audio_data; /* buffer for audio samples */
