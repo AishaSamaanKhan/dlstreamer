@@ -8,9 +8,11 @@
 
 #include "config.h"
 #include <gst/base/gstbasetransform.h>
-#include <openvino/openvino.hpp>
 #include <vector>
 #include <mutex>
+#include <memory>
+
+#include "gstgvaaudiotranscribehandler.h" // Handler interface
 
 G_BEGIN_DECLS
 
@@ -27,23 +29,19 @@ struct _GvaAudioTranscribe {
     GstBaseTransform base;
 
     /* properties */
-    gchar *model_path;          /* path to the Whisper model */
-    gchar *device;              /* inference device (CPU, GPU, etc.) */
-    gchar *model_type;
-    gchar *language;            /* language code for transcription */
-    gchar *task;                /* task: transcribe or translate */
-    gboolean return_timestamps; /* whether to return timestamps */
-    std::shared_ptr<ov::Core> core;
-    ov::CompiledModel compiled_model;
-    ov::InferRequest infer_request;
+    gchar *model_path;              /* path to the model (Whisper directory or wavvec .xml) */
+    gchar *device;                  /* inference device (CPU, GPU, etc.) */
+    gchar *model_type;              /* whisper | wavvec */
+    gchar *language;                /* language code for transcription */
+    gchar *task;                    /* task: transcribe or translate */
+    gboolean return_timestamps;     /* whether to return timestamps */
 
-    /* internal state */
-    void *pipeline;             /* Whisper pipeline */
-    void *config;               /* Whisper generation config */
+    /* modular handler */
+    GvaAudioTranscribeHandler *handler; /* selected handler implementation */
+
+    /* shared audio accumulation state */
     std::vector<float> *audio_data; /* buffer for audio samples */
-    std::mutex *mutex;          /* mutex for thread-safe audio buffer access */
-    std::unordered_map<int, std::string> vocab;
-    std::vector<std::string> alphabet;
+    std::mutex *mutex;              /* mutex for thread-safe audio buffer access */
 };
 
 struct _GvaAudioTranscribeClass {
