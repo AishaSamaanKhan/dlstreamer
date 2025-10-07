@@ -20,17 +20,14 @@ This element provides audio transcription capabilities with an extensible handle
 
 ### Model Type Support
 
-- `whisper` - ✅ Fully supported (OpenVINO GenAI)
-- Custom types - 🔧 Implement your own! See [CUSTOM_HANDLERS.md](CUSTOM_HANDLERS.md)
+- `whisper` - Fully supported (OpenVINO GenAI)
+- Custom types -  Implement your own! See [CUSTOM_HANDLERS.md](CUSTOM_HANDLERS.md)
 
 ## Quick Usage
 
 ```bash
 # Basic Whisper transcription
-gst-launch-1.0 audiotestsrc ! audioconvert ! audioresample ! \
-    "audio/x-raw,format=S16LE,rate=16000,channels=1" ! \
-    gvaaudiotranscribe model=/path/to/whisper/model model_type=whisper device=CPU ! \
-    fakesink
+GST_DEBUG=gvaaudiotranscribe:4 gst-launch-1.0 filesrc location=</path/to/file.wav> ! decodebin3 ! audioresample ! audioconvert ! audio/x-raw,channels=1,format=S16LE,rate=16000 ! audiomixer output-buffer-duration=100000000 ! gvaaudiotranscribe model=whisper-base device=CPU ! fakesink
 ```
 
 # RUN ON HOST
@@ -61,8 +58,9 @@ sudo apt-get install --reinstall libopencv-dev
 
 # Build newer version of gstreamer.
 
-It should be possible to *not* do this... but I haven't figured it out yet. This is the recommended way and does work, but is annoying because it requires setting environment variables to use later.
-```
+Note: apt package for gstreamer on ubuntu 24.04 by default installs version 1.24.1 but there are some plugins that are not implicitly installed therefore recommendation is to follow the above mention documentation and build gstreamer from source 
+
+```bash 
 python3 -m venv ~/python3venv
 source ~/python3venv/bin/activate
 
@@ -81,15 +79,15 @@ ninja -C build
 sudo env PATH=~/python3venv/bin:$PATH meson install -C build/
 ```
 
-## **EXIT THE CURRENT SESSION AND REOPEN IT**
+**EXIT THE CURRENT SESSION AND REOPEN IT**
 The python environment doesn't need to be active anymore, and it's already contaminated your current session with variables
 
 
 # Clone dl-streamer repo & check out the appropriate branch
 ```
 cd ~
-git clone https://github.com/byron-marohn/edge-ai-libraries.git
-git checkout whisper_transcription
+git clone https://github.com/dlstreamer.git
+git checkout audio_transcription
 git submodule update --init
 ```
 
@@ -110,13 +108,13 @@ source openvino_toolkit_ubuntu24_2025.3.0.dev20250809_x86_64/setupvars.sh
 
 # Set many environment variables needed to find the tools configured earlier. These are from the official advanced DLStreamer compiling guide.
 ```
-export GST_PLUGIN_PATH="$HOME/edge-ai-libraries/libraries/dl-streamer/build/intel64/Release/lib:/opt/intel/dlstreamer/gstreamer/lib/gstreamer-
+export GST_PLUGIN_PATH="$HOME/dlstreamer/build/intel64/Release/lib:/opt/intel/dlstreamer/gstreamer/lib/gstreamer-
 1.0:/usr/lib/x86_64-linux-gnu/gstreamer-1.0"
-export LD_LIBRARY_PATH="/opt/intel/dlstreamer/gstreamer/lib:$HOME/edge-ai-libraries/libraries/dl-streamer/build/intel64/Release/lib:/usr/lib:/usr/local/lib:$LD_LIBRARY_PATH"
+export LD_LIBRARY_PATH="/opt/intel/dlstreamer/gstreamer/lib:$HOME/dlstreamer/build/intel64/Release/lib:/usr/lib:/usr/local/lib:$LD_LIBRARY_PATH"
 export LIBVA_DRIVERS_PATH="/usr/lib/x86_64-linux-gnu/dri"
 export GST_VA_ALL_DRIVERS="1"
-export PATH="/opt/intel/dlstreamer/gstreamer/bin:$HOME/edge-ai-libraries/libraries/dl-streamer/build/intel64/Release/bin:$HOME/.local/bin:$HOME/python3venv/bin:$PATH"
-export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:$HOME/edge-ai-libraries/libraries/dl-streamer/build/intel64/Release/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:/opt/intel/dlstreamer/gstreamer/lib/pkgconfig:$PKG_CONFIG_PATH"
+export PATH="/opt/intel/dlstreamer/gstreamer/bin:$HOME/dlstreamer/build/intel64/Release/bin:$HOME/.local/bin:$HOME/python3venv/bin:$PATH"
+export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:$HOME/dlstreamer/build/intel64/Release/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:/opt/intel/dlstreamer/gstreamer/lib/pkgconfig:$PKG_CONFIG_PATH"
 export GST_PLUGIN_FEATURE_RANK=${GST_PLUGIN_FEATURE_RANK},ximagesink:MAX
 ```
 
@@ -128,7 +126,7 @@ export CPLUS_INCLUDE_PATH=$OpenVINOGenAI_DIR/../../runtime/include
 
 # Build DL Streamer
 ```
-cd ~/edge-ai-libraries/dl-streamer
+cd ~/dlstreamer
 mkdir build
 cd build
 cmake -DENABLE_PAHO_INSTALLATION=ON -DENABLE_RDKAFKA_INSTALLATION=ON -DENABLE_VAAPI=ON -DENABLE_SAMPLES=ON -DENABLE_GENAI=on ..
@@ -145,8 +143,6 @@ cd ~/whisper-poc
 
 ## Get whisper model files
 
-**Unfortunately this part not fully working. It's missing the detokenizer somehow. Ask Ayesha for the whisper-base folder, which contains the needed files.**
-
 These steps adapted from the original whisper_speech_recognition sample in OpenVINO GenAI: https://github.com/openvinotoolkit/openvino.genai/blob/master/samples/cpp/whisper_speech_recognition/README.md
 
 ```
@@ -159,6 +155,8 @@ You might want to create a python virtual environment and activate it if you don
 
 Install those requirements:
 ```
+python3 -m venv ~/whisper-env
+source ~/whisper-env/bin/activate
 pip install --upgrade-strategy eager -r ../../requirements.txt
 ```
 
@@ -167,12 +165,10 @@ Download & convert the whisper model:
 optimum-cli export openvino --trust-remote-code --model openai/whisper-base whisper-base
 ```
 
-This should create the whisper-base folder with the correct models, but it's missing the detokenizer when I run it...
-
 ## Finally actually run the full pipeline:
 
 ### Troubleshooting
-For some reason, I had to run this once to get gst-launch to find the transcription feature, it was saying no element "gstgvaaudiotranscribe". If you get this same error, try running this first. Must have cached it initially? Not sure:
+ gst-launch to find the transcription feature, it was saying no element "gstgvaaudiotranscribe". If you get this same error, try running this first. Must have cached it initially? Not sure:
 ```
 gst-inspect-1.0 ~/edge-ai-libraries/libraries/dl-streamer/build/intel64/Release/lib/libgstvideoanalytics.so
 ```
@@ -180,12 +176,23 @@ gst-inspect-1.0 ~/edge-ai-libraries/libraries/dl-streamer/build/intel64/Release/
 ### Launch on a test wav file:
 
 ```
-GST_DEBUG=gvaaudiotranscribe:4 gst-launch-1.0 filesrc location=$HOME/edge-ai-libraries/libraries/dl-streamer/samples/gstreamer/gst_launch/audio_detect/how_are_you_doing.wav ! decodebin3 ! audioresample ! audioconvert ! audio/x-raw,channels=1,format=S16LE,rate=16000 ! audiomixer output-buffer-duration=100000000 ! gvaaudiotranscribe model=whisper-base device=CPU ! fakesink
+GST_DEBUG=gvaaudiotranscribe:4 gst-launch-1.0 filesrc location=<path/to/wavfile> ! decodebin3 ! audioresample ! audioconvert ! audio/x-raw,channels=1,format=S16LE,rate=16000 ! audiomixer output-buffer-duration=100000000 ! gvaaudiotranscribe model=whisper-base device=CPU model_type=whisper ! fakesink
 ```
 
 ### Launch using the microphone
 ```
-GST_DEBUG=gvaaudiotranscribe:4 gst-launch-1.0     pulsesrc buffer-time=2000000 ! audioconvert ! audioresample ! audio/x-raw,format=S16LE,channels=1,rate=16000 ! queue max-size-buffers=100 max-size-time=0 max-size-bytes=0 ! gvaaudiotranscribe model=whisper-base device=CPU ! fakesink
+GST_DEBUG=gvaaudiotranscribe:4 gst-launch-1.0     pulsesrc buffer-time=2000000 ! audioconvert ! audioresample ! audio/x-raw,format=S16LE,channels=1,rate=16000 ! queue max-size-buffers=100 max-size-time=0 max-size-bytes=0 ! gvaaudiotranscribe model=whisper-base device=CPU model_type=whisper ! fakesink
+```
+
+### Launch using video demux
+```bash
+GST_DEBUG=gvaaudiotranscribe:4 \
+gst-launch-1.0 filesrc location=<path/to/file.mp4/> ! \
+    qtdemux name=demux \
+    demux.audio_0 ! decodebin ! audioconvert ! audioresample ! \
+    audio/x-raw,channels=1,format=S16LE,rate=16000 ! \
+    audiomixer output-buffer-duration=100000000 ! \
+    gvaaudiotranscribe model=whisper-base device=CPU model_type=whisper ! fakesink
 ```
 
 # RUN USING DOCKER 
@@ -193,7 +200,7 @@ GST_DEBUG=gvaaudiotranscribe:4 gst-launch-1.0     pulsesrc buffer-time=2000000 !
 
 ### Clone the repo
 ```bash
-git clone https://github.com/AishaSamaanKhan/dlstreamer.git && cd dlstreamer
+git clone https://github.com/dlstreamer.git && cd dlstreamer
 git checkout audio-transcription
 git submodule update --init --recursive
 ```
@@ -201,14 +208,14 @@ git submodule update --init --recursive
 ### Docker build
 
 ```bash
-docker build -f docker/dlstreamer_dev_ubuntu24.Dockerfile -t dlstreamer-ubuntu24-dev .
+docker build -f docker/dlstreamer_dev_ubuntu24_asr.Dockerfile -t dlstreamer-ubuntu24-dev-asr .
 ```
 
 ### Setup to download models
 ```bash
 cd ~/
-python3 -m venv python3-env
-source python3-env/bin/activate
+python3 -m venv ~/python3-env
+source ~/python3-env/bin/activate
 # install dependencies to download and convert whisper-model
 
 wget https://raw.githubusercontent.com/openvinotoolkit/openvino.genai/refs/heads/master/samples/requirements.txt
@@ -220,7 +227,7 @@ pip install --upgrade-strategy eager -r ./requirements.txt
 
 ### Download model
 
-```
+```bash
 mkdir -p ~/data
 cd ~/data
 optimum-cli export openvino --trust-remote-code --model openai/whisper-base whisper-base
@@ -275,22 +282,15 @@ See gstgvaaudiotranscribehandler.h for the extensible interface.
 - `task` - Task type: `transcribe` or `translate`
 - `return-timestamps` - Whether to include timestamps in output
 
-### Architecture Benefits
-
-- **Modularity**: Each model type has its own handler
-- **Extensibility**: Easy to add new model types
-- **Maintainability**: Clean separation of concerns
-- **Flexibility**: Users can implement their own inference logic
-
-Feel free to contribute your custom handlers back to the project!
 
 ### Docker run 
 ```bash
 # run iteractively 
-docker run -it -v ~/data:/data dlstreamer-ubuntu24-test:latest bash 
+docker run -it -v ~/data:/data dlstreamer-ubuntu24-dev-asr:latest bash 
 #run the command inside docker
 GST_DEBUG=gvaaudiotranscribe:4 gst-launch-1.0 filesrc location=/data/how_are_you_doing_today.wav ! decodebin3 ! audioresample ! audioconvert ! audio/x-raw,channels=1,format=S16LE,rate=16000 ! audiomixer output-buffer-duration=100000000 ! gvaaudiotranscribe model=/data/whisper-base device=CPU ! fakesink
 or 
 #quick try
 docker run -it -v ~/data:/data dlstreamer-ubuntu24-test:latest bash -c "GST_DEBUG=gvaaudiotranscribe:4 gst-launch-1.0 filesrc location=/data/how_are_you_doing_today.wav ! decodebin3 ! audioresample ! audioconvert ! audio/x-raw,channels=1,format=S16LE,rate=16000 ! audiomixer output-buffer-duration=100000000 ! gvaaudiotranscribe model=/data/whisper-base device=CPU ! fakesink"
 ```
+
