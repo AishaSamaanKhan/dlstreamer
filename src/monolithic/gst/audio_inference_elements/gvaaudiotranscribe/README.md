@@ -170,7 +170,7 @@ optimum-cli export openvino --trust-remote-code --model openai/whisper-base whis
 ### Troubleshooting
  gst-launch to find the transcription feature, it was saying no element "gstgvaaudiotranscribe". If you get this same error, try running this first. Must have cached it initially? Not sure:
 ```
-gst-inspect-1.0 ~/edge-ai-libraries/libraries/dl-streamer/build/intel64/Release/lib/libgstvideoanalytics.so
+gst-inspect-1.0 ~/dlstreamer/build/intel64/Release/lib/libgstvideoanalytics.so
 ```
 
 ### Launch on a test wav file:
